@@ -21,6 +21,9 @@
 
 #pragma semicolon 1
 
+
+#define IS_CLIENT(%1)       (1 <= %1 <= MaxClients)
+
 #include <colors>
 #include <r2vk>
 
@@ -32,6 +35,7 @@
 #tryinclude <materialadmin>
 
 
+
 #define STEAMWORKS_ON()	(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "SteamWorks_CreateHTTPRequest")	== FeatureStatus_Available)
 #define RIP_ON()		(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "HTTPClient.HTTPClient")			== FeatureStatus_Available)
 
@@ -40,7 +44,6 @@
 #if defined _ripext_included_
 HTTPClient g_hHTTPClient;
 #endif
-
 
 bool 
 isAdvertTurned, g_bHideAdmins, g_bBlockMuted;
@@ -332,7 +335,7 @@ void LoadIni(){
 
 public bool iVP(int iClient){
 
-	if (IsClientInGame(iClient) && !IsFakeClient(iClient) && IsPlayerAlive(iClient)) return true;
+	if (IS_CLIENT(iClient) && IsClientInGame(iClient) && !IsFakeClient(iClient) && IsPlayerAlive(iClient)) return true;
 	else return false;
 
 }
