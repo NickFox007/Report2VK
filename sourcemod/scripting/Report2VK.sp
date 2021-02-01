@@ -15,7 +15,7 @@
 		в конфиге, придет указанное сообщение
 		- Возможность скрывать админов в списке игроков для репорта
 		- Возможность отключить команду для находящихся в муте
-		- Другие некритичные фиксы
+		- Другие некритичные фиксы	
    ================================================================================= */		
 
 
@@ -59,7 +59,7 @@ g_iMuteType = 0; // Тип плагина для банов/мутов
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.1",
+	version		= "1.1a",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
@@ -250,6 +250,7 @@ public Action HookPlayerChat(int client, char[] command, int args)  // Если 
 
 public void OnClientPutInServer(int client){	
 	isReporting[client] = 0; // Ставим каждому зашедшему изначальный статус того, что он не в состоянии репорта
+	m_iDelays[client] = 0; // Обнуляем каждому зашедшему счетчик задержки
 }
 
 
@@ -335,8 +336,8 @@ public void RoundFreezeEnd(Event event, const char[] name, bool dbc)
 	for(int i = 1;i<65;i++) if(m_iDelays[i]) m_iDelays[i]--;
 	else if(isAdvertTurned){
 		if(g_iCurAdDelay) g_iCurAdDelay--;
-		else{
-			CPrintToChat(i,"{grey}[%s{grey}] {lime}Увидел нарушителя? Отправь жалобу на него с помощью команды !report",a_Prefix);
+		else {
+			if (IsClientInGame(i)) CPrintToChat(i,"{grey}[%s{grey}] {lime}Увидел нарушителя? Отправь жалобу на него с помощью команды !report",a_Prefix);
 			g_iCurAdDelay=g_iAdDelay;
 		}
 	}
