@@ -330,6 +330,13 @@ void LoadIni(){
 	delete kv;
 }
 
+public bool iVP(int iClient){
+
+	if (IsClientInGame(iClient) && !IsFakeClient(iClient) && IsPlayerAlive(iClient)) return true;
+	else return false;
+
+}
+
 
 public void RoundFreezeEnd(Event event, const char[] name, bool dbc)
 {	
@@ -337,7 +344,7 @@ public void RoundFreezeEnd(Event event, const char[] name, bool dbc)
 	else if(isAdvertTurned){
 		if(g_iCurAdDelay) g_iCurAdDelay--;
 		else {
-			if (IsClientInGame(i)) CPrintToChat(i,"{grey}[%s{grey}] {lime}Увидел нарушителя? Отправь жалобу на него с помощью команды !report",a_Prefix);
+			if (iVP(i)) CPrintToChat(i,"{grey}[%s{grey}] {lime}Увидел нарушителя? Отправь жалобу на него с помощью команды !report",a_Prefix);
 			g_iCurAdDelay=g_iAdDelay;
 		}
 	}
