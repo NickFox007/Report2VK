@@ -62,7 +62,7 @@ public Plugin myinfo =
 	version		= "1.1",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
-	url			= "https://vk.com/bond00701"
+	url			= "https://vk.com/nf_dev"
 }
 
 public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr_max) 
