@@ -64,7 +64,7 @@ g_iMuteType = 0; // Тип плагина для банов/мутов
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.1a",
+	version		= "1.1.1",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
