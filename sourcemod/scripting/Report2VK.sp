@@ -18,11 +18,16 @@
 		- Другие некритичные фиксы	
   1.1.1 - Фикс ошибки "Client is invalid", которая проявлялась на серверах
 		с малым количеством слотов
+  1.2.0 - Фикс ошибки с ненайденным нативом расширения RestInPawn
+		- Переключение между SteamWorks и RiP (параметр SWorRIP [1 - SW, 0 - RiP]
+		- Добавлено взаимодействие с Discord [Core]
+		от Kruzya (параметр Discord [1 - ВКЛ, 0 - ВЫКЛ]
+		- Теперь функция из r2vk.inc переименована из R2VK_SendVK в R2VK_Send
+		- Иные мелкие фиксы
    ================================================================================= */		
 
 
 #pragma semicolon 1
-
 
 #define IS_CLIENT(%1)       (1 <= %1 <= MaxClients)
 
@@ -35,20 +40,27 @@
 #undef REQUIRE_PLUGIN
 #tryinclude <sourcecomms>
 #tryinclude <materialadmin>
-
-
-
-#define STEAMWORKS_ON()	(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "SteamWorks_CreateHTTPRequest")	== FeatureStatus_Available)
-#define RIP_ON()		(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "HTTPClient.HTTPClient")			== FeatureStatus_Available)
+#tryinclude <discord_extended>
 
 #pragma newdecls required
+
+#if defined _SteamWorks_Included
+#define STEAMWORKS_ON()	(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "SteamWorks_CreateHTTPRequest")	== FeatureStatus_Available)
+#endif
+
+#if defined _ripext_included_
+#define RIP_ON()		(CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "HTTPClient.HTTPClient")			== FeatureStatus_Available)
+#endif
+
 
 #if defined _ripext_included_
 HTTPClient g_hHTTPClient;
 #endif
 
 bool 
-isAdvertTurned, g_bHideAdmins, g_bBlockMuted;
+isAdvertTurned, g_bHideAdmins, g_bBlockMuted,
+DISCORD_ON,
+g_bUseDiscord, g_bUseSW;
 
 char
 sServerName[256], a_Prefix[128], g_sFormat[512],
@@ -64,7 +76,7 @@ g_iMuteType = 0; // Тип плагина для банов/мутов
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.1.1",
+	version		= "1.2.0",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
@@ -72,7 +84,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr_max) 
 {
-	CreateNative("R2VK_SendVK", Native_SendVK);    
+	CreateNative("R2VK_Send", Native_Send);    
 	RegPluginLibrary("r2vk");
 	return APLRes_Success;
 }
@@ -94,9 +106,30 @@ public void OnPluginStart()
 	
 }
 
+public void OnLibraryAdded(const char[] szName) 
+{
+	if(StrEqual(szName, "discord_extended")) DISCORD_ON = true;
+	if (StrEqual(szName, "sourcebans++", true))
+	{
+		g_iMuteType = 1;
+	}
+	else
+	{
+		if (StrEqual(szName, "materialadmin", true))
+		{
+			g_iMuteType = 2;
+		}
+	}
+
+}
+
+public void OnLibraryRemoved(const char[] szName) 
+{
+	if(StrEqual(szName, "discord_extended")) DISCORD_ON = false;	
+}
 
 
-public int Native_SendVK(Handle hPlugin, int iNumParams)
+public int Native_Send(Handle hPlugin, int iNumParams)
 {	
 	char text[256];	
 	GetNativeString(1, text, sizeof(text));
@@ -200,9 +233,28 @@ public void SendVKReport(int client, int target, char text[256]){
 		FormatEx(message,sizeof(message), g_sFormat,sServerName,client_name,client_url,target_name,target_url,sDate,sTime,text);
 		
 		SendVK(message);
+
+
+		#if defined _discord_extended_included
+		
+			if (DISCORD_ON&&g_bUseDiscord) SendDiscord(message);
+				
+		
+		#endif
+		
+		
 	}
 	else CPrintToChat(client,"{grey}[%s{grey}]  {default}Выбранный игрок вышел с сервера", a_Prefix);	
 	
+}
+
+public void SendDiscord(char[] message){
+
+	Discord_StartMessage();
+	Discord_SetUsername("R2VK");
+	Discord_SetContent(message);
+	Discord_EndMessage("report", true); // отправляем сообщение на веб-хук chat_logger из конфига, одобряя использование стандартного веб-хука, если нужного нет.
+
 }
 
 public void SendVK(char[] message){
@@ -221,8 +273,8 @@ public void SendVK(char[] message){
 	ReplaceString(sURL, sizeof(sURL), "\n", "%0A", false);
 	ReplaceString(sURL, sizeof(sURL), "#", "%23", false);
 	
-	if (STEAMWORKS_ON()) SW_SendMessage(sURL);
-	else if (RIP_ON()) RIP_SendMessage(sURL);
+	if (STEAMWORKS_ON()&&g_bUseSW)	SW_SendMessage(sURL);
+	else if (RIP_ON()&&!g_bUseSW)	RIP_SendMessage(sURL);
 }
 
 public bool isMuted(int i){
@@ -270,21 +322,6 @@ public void OnConfigsExecuted(){
 	GetConVarString(hHostName, sServerName, sizeof(sServerName));
 }
 
-public void OnLibraryAdded(const char[] sName)
-{
-	if (StrEqual(sName, "sourcebans++", true))
-	{
-		g_iMuteType = 1;
-	}
-	else
-	{
-		if (StrEqual(sName, "materialadmin", true))
-		{
-			g_iMuteType = 2;
-		}
-	}
-}
-
 
 void LoadIni(){
 
@@ -297,6 +334,8 @@ void LoadIni(){
 			kv.SetNum("Advertisement", 1);
 			kv.SetNum("HideAdmins", 1);
 			kv.SetNum("Block4Muted", 1);
+			kv.SetNum("SWorRIP", 0);
+			kv.SetNum("Discord", 1);
 			kv.SetNum("Delay", 3);
 			kv.SetNum("AdDelay", 3);
 			kv.SetString("Format", "[R2VK] %s\n\nИгрок %s\n[%s]\n\nпожаловался на %s\n[%s]\n\nДата - %s\nВремя - %s\n\nПричина: %s");
@@ -320,6 +359,12 @@ void LoadIni(){
 			
 			if (kv.GetNum("Advertisement") == 1) isAdvertTurned = true;
 			else isAdvertTurned = false;
+			
+			if (kv.GetNum("SWorRIP") == 0) g_bUseSW = true;
+			else g_bUseSW = false;
+			
+			if (kv.GetNum("Discord") == 1) g_bUseDiscord = true;
+			else g_bUseDiscord = false;
 			
 			g_iDelay = kv.GetNum("Delay");
 			g_iAdDelay = kv.GetNum("AdDelay");
@@ -364,7 +409,9 @@ void RIP_SendMessage(const char[] sURL)
 
 public void OnRequestCompleteRIP(HTTPResponse hResponse, any iData)
 {
-	if (hResponse.Status != HTTPStatus_OK) LogMessage("VK-Response[RIP]: %d", hResponse.Status);
+	if (hResponse.Status != HTTPStatus_OK) 
+	LogMessage("VK-Response[RIP]: %d", hResponse.Status);
+		
 }
 #endif
 
@@ -373,7 +420,7 @@ void SW_SendMessage(const char[] sURL)
 {
 	Handle hRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodGET, sURL);
 	SteamWorks_SetHTTPCallbacks(hRequest, OnRequestCompleteSW);
-	SteamWorks_SetHTTPRequestHeaderValue(hRequest, "User-Agent", "Test");
+	SteamWorks_SetHTTPRequestHeaderValue(hRequest, "User-Agent", "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36");
 	SteamWorks_SendHTTPRequest(hRequest);
 }
 
