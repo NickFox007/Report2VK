@@ -3,7 +3,7 @@
 #endif // Окончание условия
 #define _r2vk_included    // Объявляем директиву _base_stats_included
 
-native void R2VK_SendVK(const char[] text);
+native void R2VK_Send(const char[] text);
 /**
  *	Отправляет сообщение через плагин R2VK
  *	-
