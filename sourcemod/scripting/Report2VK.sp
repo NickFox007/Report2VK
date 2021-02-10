@@ -93,7 +93,7 @@ g_iReasonsCount; // Количество причин из конфига
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.2.1",
+	version		= "1.3.0",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
