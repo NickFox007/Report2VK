@@ -21,9 +21,16 @@
   1.2.0 - Фикс ошибки с ненайденным нативом расширения RestInPawn
 		- Переключение между SteamWorks и RiP (параметр SWorRIP [1 - SW, 0 - RiP]
 		- Добавлено взаимодействие с Discord [Core]
-		от Kruzya (параметр Discord [1 - ВКЛ, 0 - ВЫКЛ]
+		от Kruzya (параметр Discord [1 - ВКЛ, 0 - ВЫКЛ])
 		- Теперь функция из r2vk.inc переименована из R2VK_SendVK в R2VK_Send
 		- Иные мелкие фиксы
+  1.3.0 - Добавлено логирование сообщений в файл (параметр Logging [1 - ВКЛ, 0 - ВЫКЛ])
+		- Фикс ошибки неверного хэндла при нажатии кнопки выхода (убраны ненужные кнопки)
+		- Добавлено меню для выбора причины репорта
+		(настраивается в файле config/r2vk_reasons.ini)
+		- Добавлено переключение возможности вписать собственную причину при репорте
+		(параметр AllowOwnReason [1 - ВКЛ, 0 - ВЫКЛ])
+		- Некоторые поправки во фразах
    ================================================================================= */		
 
 
@@ -57,26 +64,36 @@
 HTTPClient g_hHTTPClient;
 #endif
 
+Handle
+fileHandle       = INVALID_HANDLE;
+
 bool 
 isAdvertTurned, g_bHideAdmins, g_bBlockMuted,
 DISCORD_ON,
-g_bUseDiscord, g_bUseSW;
+g_bUseDiscord, g_bUseSW,
+g_bLogging, g_bAllowOwnReason,
+g_bUseOwnReason[65];
 
 char
 sServerName[256], a_Prefix[128], g_sFormat[512],
-vk_Token[128], vk_PeerID[16];
+vk_Token[128], vk_PeerID[16], // Данные ВК
+logFile[128];// Хранение названия файла
+StringMap g_sReasons;
+
+
 
 int
 g_iDelay, m_iDelays[65], // Хранение задержек между репортами
 isReporting[65], // Для определения того, кого репортит игрок (и репортит ли вообще)
 g_iAdDelay, g_iCurAdDelay, // Хранение задержек напоминания
-g_iMuteType = 0; // Тип плагина для банов/мутов
+g_iMuteType = 0, // Тип плагина для банов/мутов
+g_iReasonsCount; // Количество причин из конфига
 
 
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.2.0",
+	version		= "1.2.1",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
@@ -102,8 +119,29 @@ public void OnPluginStart()
 	HookEvent("round_freeze_end", RoundFreezeEnd, EventHookMode_PostNoCopy); // Перехватываем событие старта раунда
 	AddCommandListener(HookPlayerChat, "say"); // Перехватываем сообщение в чате
 	AddCommandListener(HookPlayerChat, "say_team"); // Перехватываем сообщение в тим-чате
-	LoadIni(); // Работаем с конфигурационным файлом
 	
+	BuildPath(Path_SM, logFile, PLATFORM_MAX_PATH, "/logs/r2vk.log");
+	
+	LoadIni(); // Работаем с конфигурационным файлом
+	LoadIni2(); // Работаем с конфигурационным файлом списка причин
+	
+}
+
+public void Log(const char[] text){
+
+	char time[21], date[21];
+	
+	char log[1024];
+	
+	FormatTime(time, sizeof(time), "%H:%M:%S", -1)	;
+	FormatTime(date, sizeof(date), "%d.%m.%y", -1);
+	
+	Format(log, sizeof(log), "%s %s\n%s\n", date, time, text);
+	
+	fileHandle = OpenFile(logFile, "a");  /* Append */
+	WriteFileLine(fileHandle, log);
+	CloseHandle(fileHandle);
+
 }
 
 public void OnLibraryAdded(const char[] szName) 
@@ -150,9 +188,15 @@ public Action Cmd_Report(int client, int args){
 }
 
 public Action Cmd_Reload(int client, int args){
-	if(CheckCommandAccess(client, "BypassPremiumCheck", ADMFLAG_ROOT, true)){
+	if(client==0){
 		LoadIni();
-		CPrintToChat(client,"{grey}[%s{grey}] {default}Конфиг перезагружен", a_Prefix);
+		PrintToServer("[R2VK] Config reloaded!");
+		return Plugin_Handled;
+	
+	}
+	if(CheckCommandAccess(client, "BypassPremiumCheck", ADMFLAG_ROOT, true)){
+		LoadIni();		
+		CPrintToChat(client,"{grey}[%s{grey}] {default}Конфиг перезагружен!", a_Prefix);
 		return Plugin_Handled;
 	}
 	return Plugin_Continue;
@@ -162,8 +206,8 @@ public Action Cmd_Reload(int client, int args){
 void DisplayChooseMenu(int client) // Функция показа меню с выбором игрока
 {
 	Menu menu = new Menu(MenuHandler_ChooseMenu); // Прикрепляем обработчик при выборе в категории
-	menu.SetTitle("Выбрать игрока"); // Устанавливаем заголовок
-	menu.ExitBackButton = true; // Активируем кнопку выхода	
+	menu.SetTitle("Выберите игрока"); // Устанавливаем заголовок
+	//menu.ExitBackButton = true; // Активируем кнопку выхода	
 	
 	char userid[15], name[32];
 	// Добавляем игроков в меню выбора
@@ -185,6 +229,32 @@ void DisplayChooseMenu(int client) // Функция показа меню с в
 }
 
 
+void DisplayChooseReasonMenu(int client) // Функция показа меню с выбором игрока
+{
+	Menu menu = new Menu(MenuHandler_ChooseReasonMenu); // Прикрепляем обработчик при выборе в категории
+	menu.SetTitle("Выберите причину"); // Устанавливаем заголовок
+	//menu.ExitBackButton = true; // Активируем кнопку выхода	
+	
+	char Sindex[3], szBuff[32];
+	// Добавляем причины в меню выбора
+	for (int i = 0; i < g_iReasonsCount; i++) 
+	{			
+		IntToString(i, Sindex, sizeof(Sindex));
+		
+		g_sReasons.GetString(Sindex, szBuff, sizeof(szBuff));		
+		
+		menu.AddItem(Sindex, szBuff); 
+	}
+	
+	if (g_bAllowOwnReason) menu.AddItem("own", "Своя причина"); 
+	
+	
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+
+
+
 public int MenuHandler_ChooseMenu(Menu menu, MenuAction action, int client, int param2)
 {
 	if(action == MenuAction_End)
@@ -195,16 +265,46 @@ public int MenuHandler_ChooseMenu(Menu menu, MenuAction action, int client, int 
 		int target;
 		menu.GetItem(param2, info, sizeof(info));
 		target = GetClientOfUserId(StringToInt(info));			
-		PrepSendReport(target,client);		
+		//PrepSendReport(target,client);		
+		isReporting[client] = target;
+		DisplayChooseReasonMenu(client);
 	}
-	else if(action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+	else if(action == MenuAction_Cancel)
 		delete menu; // Выход из меню
 }
 
-public void PrepSendReport(int target,int client){
 
-	CPrintToChat(client,"{grey}[%s{grey}]  {default}Введите причину, по которой хотите пожаловаться на игрока", a_Prefix);	
-	isReporting[client]=target;
+public int MenuHandler_ChooseReasonMenu(Menu menu, MenuAction action, int client, int param2)
+{
+	if(action == MenuAction_End){
+		isReporting [client] = 0;
+		delete menu; // Выход из меню		
+	}
+	else if(action == MenuAction_Select) // Если игрок был выбран
+	{		
+		char info[4], reason[256];		
+		menu.GetItem(param2, info, sizeof(info));		
+		
+		if (StrEqual(info,"own")) PrepSendReport(client);
+		
+		else
+		{
+		
+			g_sReasons.GetString(info, reason, sizeof(reason));
+			
+			SendVKReport(client,isReporting[client],reason);
+		}
+	}
+	else if(action == MenuAction_Cancel){
+		isReporting [client] = 0;
+		delete menu; // Выход из меню	
+	}
+}
+
+
+public void PrepSendReport(int client){
+	g_bUseOwnReason[client] = true;
+	CPrintToChat(client,"{grey}[%s{grey}] {default}Введите причину, по которой хотите пожаловаться на игрока", a_Prefix);	
 }
 
 public void SendVKReport(int client, int target, char text[256]){
@@ -232,8 +332,11 @@ public void SendVKReport(int client, int target, char text[256]){
 		FormatTime(sDate,sizeof(sDate), "%d.%m.%Y");	
 		FormatEx(message,sizeof(message), g_sFormat,sServerName,client_name,client_url,target_name,target_url,sDate,sTime,text);
 		
-		SendVK(message);
-
+		if (g_bLogging) Log(message);		
+		
+		isReporting[client] = 0;
+		
+		SendVK(message);		
 
 		#if defined _discord_extended_included
 		
@@ -242,6 +345,7 @@ public void SendVKReport(int client, int target, char text[256]){
 		
 		#endif
 		
+		CPrintToChat(client,"{grey}[%s{grey}] {default}Жалоба на игрока успешно отправлена!", a_Prefix);
 		
 	}
 	else CPrintToChat(client,"{grey}[%s{grey}]  {default}Выбранный игрок вышел с сервера", a_Prefix);	
@@ -289,16 +393,13 @@ public bool isMuted(int i){
 
 public Action HookPlayerChat(int client, char[] command, int args)  // Если поступило сообщение в чат, то вызывается это событие
 {
-  if (isReporting[client]!=0){
-  
-
+  if (isReporting[client]!=0&&g_bUseOwnReason[client]){
 	
+	g_bUseOwnReason[client] = false;
 	char text[256];
 	GetCmdArg(1, text, sizeof(text));
 	
 	SendVKReport(client,isReporting[client],text);
-	isReporting[client] = 0;
-	CPrintToChat(client,"{grey}[%s{grey}] {default}Жалоба на игрока успешно отправлена!", a_Prefix);	
 	return Plugin_Handled; // Блокируем показ сообщения в чате
 	
   }
@@ -336,8 +437,10 @@ void LoadIni(){
 			kv.SetNum("Block4Muted", 1);
 			kv.SetNum("SWorRIP", 0);
 			kv.SetNum("Discord", 1);
+			kv.SetNum("Logging", 1);
+			kv.SetNum("AllowOwnReason", 1);
 			kv.SetNum("Delay", 3);
-			kv.SetNum("AdDelay", 3);
+			kv.SetNum("AdDelay", 3);	
 			kv.SetString("Format", "[R2VK] %s\n\nИгрок %s\n[%s]\n\nпожаловался на %s\n[%s]\n\nДата - %s\nВремя - %s\n\nПричина: %s");
 			kv.SetString("VK_Token", "Put your token here!");
 			kv.SetString("VK_PeerID", "Put needed peerID here!");			
@@ -366,6 +469,12 @@ void LoadIni(){
 			if (kv.GetNum("Discord") == 1) g_bUseDiscord = true;
 			else g_bUseDiscord = false;
 			
+			if (kv.GetNum("Logging") == 1) g_bLogging = true;
+			else g_bLogging = false;
+			
+			if (kv.GetNum("AllowOwnReason") == 1) g_bAllowOwnReason = true;
+			else g_bAllowOwnReason = false;
+			
 			g_iDelay = kv.GetNum("Delay");
 			g_iAdDelay = kv.GetNum("AdDelay");
 			
@@ -376,9 +485,58 @@ void LoadIni(){
 			kv.Rewind();
 		}
 	}
-	else SetFailState("[R2VK] KeyValues Error!");
+	else SetFailState("[R2VK] KeyValues Error[1]!");
 	delete kv;
 }
+
+void LoadIni2(){
+	
+	if(g_sReasons) delete g_sReasons;
+
+	g_sReasons = new StringMap();
+	
+	char sPath[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, sPath, sizeof(sPath), "configs/r2vk_reasons.ini");
+	KeyValues kv = new KeyValues("R2VK");
+	if (!FileExists(sPath, false)){
+		if (kv.JumpToKey("Reasons", true)){
+			kv.SetString("0", "Читы");
+			kv.SetString("1", "Оскорбления");
+			kv.SetString("2", "Иные нарушения правил");
+			kv.Rewind();
+		}
+		kv.ExportToFile(sPath);
+	}
+	
+	if (kv.ImportFromFile(sPath)){
+		if (kv.JumpToKey("Reasons", false)){		
+			
+			int index = 0;
+			char Sindex[4];
+			char str[32];
+			Sindex = "0";
+			
+			str = "not null";
+			
+			while(!StrEqual(str,""))
+			{				
+				kv.GetString(Sindex, str, sizeof(str));
+				g_sReasons.SetString(Sindex, str);
+				index++;
+				IntToString(index,Sindex,sizeof(Sindex));
+			}
+			
+			
+			g_iReasonsCount = index-1;
+			
+			kv.Rewind();
+		}
+	}
+	else SetFailState("[R2VK] KeyValues Error [2]!");
+	delete kv;	
+	
+}
+
 
 public bool iVP(int iClient){
 
