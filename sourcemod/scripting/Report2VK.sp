@@ -31,6 +31,10 @@
 		- Добавлено переключение возможности вписать собственную причину при репорте
 		(параметр AllowOwnReason [1 - ВКЛ, 0 - ВЫКЛ])
 		- Некоторые поправки во фразах
+  1.3.1 - Изменён формат сообщения в Discord. Теперь он стал лаконичнее и красивее 
+		- Фикс Invalid Handle при открытии меню и краша сервера из-за него
+		- Исправлено преобразование текста в URL-формат, а также добавлены
+		дополнительные символы для него
    ================================================================================= */		
 
 
@@ -93,7 +97,7 @@ g_iReasonsCount; // Количество причин из конфига
 public Plugin myinfo = 
 {
 	name		= "Report2VK [R2VK]",
-	version		= "1.3.0",
+	version		= "1.3.1",
 	description	= "Sends player's reports in VK. Отправка репортов игроков в ВК.",
 	author		= "NickFox",
 	url			= "https://vk.com/nf_dev"
@@ -269,8 +273,8 @@ public int MenuHandler_ChooseMenu(Menu menu, MenuAction action, int client, int 
 		isReporting[client] = target;
 		DisplayChooseReasonMenu(client);
 	}
-	else if(action == MenuAction_Cancel)
-		delete menu; // Выход из меню
+	//else if(action == MenuAction_Cancel)
+		//delete menu; // Выход из меню
 }
 
 
@@ -320,10 +324,10 @@ public void SendVKReport(int client, int target, char text[256]){
 		GetClientName(target, target_name, sizeof(target_name));
 		
 		GetClientAuthId(client, AuthId_SteamID64, sSteam, sizeof(sSteam), true);
-		Format(client_url, sizeof(client_url), "steamcommunity.com/profiles/%s", sSteam);
+		Format(client_url, sizeof(client_url), "https://steamcommunity.com/profiles/%s", sSteam);
 		
 		GetClientAuthId(target, AuthId_SteamID64, sSteam, sizeof(sSteam), true);
-		Format(target_url, sizeof(target_url), "steamcommunity.com/profiles/%s", sSteam);
+		Format(target_url, sizeof(target_url), "https://steamcommunity.com/profiles/%s", sSteam);
 
 		char message[1024];	
 		char sTime[16],sDate[16];
@@ -340,7 +344,8 @@ public void SendVKReport(int client, int target, char text[256]){
 
 		#if defined _discord_extended_included
 		
-			if (DISCORD_ON&&g_bUseDiscord) SendDiscord(message);
+			//if (DISCORD_ON&&g_bUseDiscord) SendDiscord(message);
+			if (DISCORD_ON&&g_bUseDiscord) SendDiscord(sServerName, client_name,target_name,client_url, target_url, sDate, sTime, text);
 				
 		
 		#endif
@@ -352,30 +357,51 @@ public void SendVKReport(int client, int target, char text[256]){
 	
 }
 
-public void SendDiscord(char[] message){
+public void SendDiscord(char[] sServer, char[] sPlayerName, char[] sTargetName, char[] sPlayerUrl, char[] sTargetUrl, char[] sDate, char[] sTime, char[] sReason){
 
 	Discord_StartMessage();
 	Discord_SetUsername("R2VK");
-	Discord_SetContent(message);
+	Discord_SetColor(0xFF0000);
+	//Discord_SetContent(message);
+	
+	char field1[256], field2[256], field3[64];
+	FormatEx(field1, sizeof(field1),"Игрок %s", sPlayerName);
+	FormatEx(field2, sizeof(field2),"пожаловался на %s", sTargetName);	
+	FormatEx(field3, sizeof(field3),"%s %s", sDate, sTime);
+	
+	Discord_AddField("Сервер",sServer,true);
+	Discord_AddField(field1,sPlayerUrl,true);
+	Discord_AddField(field2,sTargetUrl,true);
+	Discord_AddField("Причина",sReason,true);
+	Discord_AddField("Время",field3,true);
+	//Discord_SetTimestamp(GetTime());	
+	//Discord_SetTimestamp(GetTime()+GetConVarInt(FindConVar("sm_dal_time_correct")));
+	
 	Discord_EndMessage("report", true); // отправляем сообщение на веб-хук chat_logger из конфига, одобряя использование стандартного веб-хука, если нужного нет.
 
 }
 
 public void SendVK(char[] message){
 	char sURL[2048];
+	char sCorMessage[2048];
+	FormatEx(sCorMessage, sizeof(sCorMessage), "%s", message);
+
+
+	ReplaceString(sCorMessage, sizeof(sCorMessage), " ", "%20", false);
+	ReplaceString(sCorMessage, sizeof(sCorMessage), "NWLN", "%0A", false);
+	ReplaceString(sCorMessage, sizeof(sCorMessage), "\n", "%0A", false);
+	ReplaceString(sCorMessage, sizeof(sCorMessage), "#", "%23", false);
+	ReplaceString(sCorMessage, sizeof(sCorMessage), "&", "26%", false);	
 	
 	FormatEx(sURL, sizeof(sURL), "https://api.vk.com/method/messages.send?v=5.121&random_id=%i&access_token=%s&peer_id=%s&message=%s",
 		GetRandomInt(1, 14881337),
 		vk_Token,
 		vk_PeerID,
-		message
+		sCorMessage
 	);
 	
-	//Костыли текста
-	ReplaceString(sURL, sizeof(sURL), " ", "%20", false);
-	ReplaceString(sURL, sizeof(sURL), "NWLN", "%0A", false);
-	ReplaceString(sURL, sizeof(sURL), "\n", "%0A", false);
-	ReplaceString(sURL, sizeof(sURL), "#", "%23", false);
+	
+	
 	
 	if (STEAMWORKS_ON()&&g_bUseSW)	SW_SendMessage(sURL);
 	else if (RIP_ON()&&!g_bUseSW)	RIP_SendMessage(sURL);
